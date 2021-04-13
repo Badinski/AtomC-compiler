@@ -2,8 +2,17 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #define SAFEALLOC(var,Type) if((var=(Type*)malloc(sizeof(Type)))==NULL)perror("not enough memory");
+
+int expr();
+int typeName();
+int arrayDecl();
+int exprUnary();
+int typeBase();
+int declVar();
+int stmCompound();
 
 // codurile AL
 enum{
@@ -40,6 +49,7 @@ typedef struct _Token
 }Token;
 
 Token *tokens = NULL, *lastToken = NULL;
+Token *crtToken;
 
 Token *addTk(int code)
 {
@@ -108,7 +118,7 @@ char *createString(char *begin_ch, char *end_ch)
    while (1)
    {
      // ch = *pch;
-     printf("starea %d: %c(%d)\n",state, *pch, *pch);
+     //printf("starea %d: %c(%d)\n",state, *pch, *pch);
 
      switch(state)
      {
@@ -520,6 +530,736 @@ char *createString(char *begin_ch, char *end_ch)
    }
  }
 
+ void tkerr(const Token *tk,const char *fmt,...)
+ {
+   va_list va;
+   va_start(va,fmt);
+   fprintf(stderr,"error in line %d:  ",tk->line);
+   vfprintf(stderr,fmt,va);
+   fputc('\n',stderr);
+   va_end(va);
+   exit(-1);
+ }
+
+  char *getTokenName(int code)
+  {
+    return enumNames[code];
+  }
+
+  int consume(int code)
+  {
+    if(crtToken->code == code)
+    {
+      //consumedTk=crtTk;
+      printf("%d. consume: %s\n", crtToken->line, getTokenName(crtToken->code));
+
+      crtToken = crtToken->next;
+      return 1;
+    }
+
+    return 0;
+  }
+
+  int stm()
+  {
+    if(stmCompound()) return 1;
+
+    if(consume(IF))
+    {
+      if(consume(LPAR))
+      {
+        if(expr())
+        {
+          if(consume(RPAR))
+          {
+            if(stm())
+            {
+              if(consume(ELSE))
+              {
+                if(!stm()) tkerr(crtToken, "incorrect statement");
+              }
+
+              return 1;
+            }
+            else tkerr(crtToken, "missing statement");
+          }
+          else tkerr(crtToken, "missing )");
+        }
+        else tkerr(crtToken, "wrong expression");
+      }
+      else tkerr(crtToken, "missing (");
+    }
+
+    if(consume(WHILE))
+    {
+      if(consume(LPAR))
+      {
+        if(expr())
+        {
+          if(consume(RPAR))
+          {
+            if(stm())
+            {
+              return 1;
+            }
+            else tkerr(crtToken, "wrong while body declaration");
+          }
+          else tkerr(crtToken, "missing )");
+        }
+        else tkerr(crtToken, "wrong expression");
+      }
+      else tkerr(crtToken, "missing (");
+    }
+
+    if(consume(FOR))
+    {
+      if(consume(LPAR))
+      {
+        if(expr())
+        {
+        }
+
+        if(consume(SEMICOLON))
+        {
+          if(expr())
+          {
+          }
+
+          if(consume(SEMICOLON))
+          {
+            if(expr())
+            {
+            }
+
+            if(consume(RPAR))
+            {
+              if(stm()) return 1;
+              else tkerr(crtToken, "missing statement");
+            }
+            else tkerr(crtToken, "missing )");
+          }
+          tkerr(crtToken, "missing ; inside for expression");
+        }
+        else tkerr(crtToken, "missing ; inside for expression");
+      }
+      else tkerr(crtToken, "missing (");
+    }
+
+    if(consume(BREAK))
+    {
+      if(consume(SEMICOLON)) return 1;
+      else tkerr(crtToken, "missing ;");
+    }
+
+    if(consume(RETURN))
+    {
+      if(expr())
+      {
+      }
+
+      if(consume(SEMICOLON)) return 1;
+      else tkerr(crtToken, "missing ;");
+    }
+
+    if(expr())
+    {
+      if(consume(SEMICOLON)) return 1;
+      else tkerr(crtToken, "missing ;");
+    }
+
+    if(consume(SEMICOLON)) return 1;
+
+    return 0;
+  }
+
+  int stmCompound()
+  {
+    printf("%d stmCompound %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(consume(LACC))
+    {
+      while(declVar() || stm());
+
+      if(consume(RACC))
+      {
+        return 1;
+      }
+      else tkerr(crtToken, "missing }");
+    }
+
+    return 0;
+  }
+
+  int funcArg()
+  {
+    printf("%d funcArg %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(typeBase())
+    {
+      if(consume(ID))
+      {
+        if(arrayDecl())
+        {
+        }
+
+        return 1;
+      }
+      else tkerr(crtToken, "missing argument name");
+    }
+
+    return 0;
+  }
+
+  int declFunc()
+  {
+    printf("%d declFunc %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(typeBase())
+    {
+      if(consume(MUL))
+      {
+      }
+
+      if(consume(ID))
+      {
+        if(consume(LPAR))
+        {
+          if(funcArg())
+          {
+            while(consume(COMMA))
+            {
+              if(!funcArg()) tkerr(crtToken, "wrong argument");
+            }
+          }
+
+          if(consume(RPAR))
+          {
+            if(stmCompound())
+            {
+              return 1;
+            }
+          }
+          else tkerr(crtToken, "missing )");
+        }
+        else
+        {
+          crtToken = startToken;
+          return 0;
+        }
+        //else tkerr(crtToken, "missing (");
+      }
+      else tkerr(crtToken, "function name not found");
+    }
+
+    if(consume(VOID))
+    {
+      if(consume(ID))
+      {
+        if(consume(LPAR))
+        {
+          if(funcArg())
+          {
+            while(consume(COMMA))
+            {
+              if(!funcArg()) tkerr(crtToken, "wrong argument");
+            }
+          }
+
+          if(consume(RPAR))
+          {
+            if(stmCompound())
+            {
+              return 1;
+            }
+          }
+          else tkerr(crtToken, "missing )");
+        }
+        else tkerr(crtToken, "missing (");
+      }
+      else tkerr(crtToken, "function name not found");
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int typeName()
+  {
+    if(typeBase())
+    {
+      arrayDecl();
+
+      return 1;
+    }
+
+    return 0;
+  }
+
+  int exprCast()
+  {
+    printf("%d exprCast %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(consume(LPAR))
+    {
+      if(typeName())
+      {
+        if(consume(RPAR))
+        {
+          if(exprCast()) return 1;
+        }
+      }
+
+      crtToken = startToken;
+    }
+
+
+    if(exprUnary()) return 1;
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int exprMulPrim()
+  {
+    printf("%d exprMulPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(MUL) || consume(DIV))
+    {
+      if(exprCast())
+      {
+        if(exprMulPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprMul()
+  {
+    printf("%d exprMul %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprCast())
+    {
+      if(exprMulPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int exprAddPrim()
+  {
+    printf("%d exprAddPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(ADD) || consume(SUB))
+    {
+      if(exprMul())
+      {
+        if(exprAddPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprAdd()
+  {
+    printf("%d exprAdd %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprMul())
+    {
+      if(exprAddPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int exprRelPrim()
+  {
+    printf("%d exprRelPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(LESS) || consume(LESSEQ) || consume(GREATER) || consume(GREATEREQ))
+    {
+      if(exprAdd())
+      {
+        if(exprRelPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprRel()
+  {
+    printf("%d exprRel %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprAdd())
+    {
+      if(exprRelPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int exprEqPrim()
+  {
+    printf("%d exprEqPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(EQUAL) || consume(NOTEQ))
+    {
+      if(exprRel())
+      {
+        if(exprEqPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprEq()
+  {
+    printf("%d exprEq %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprRel())
+    {
+      if(exprEqPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int exprAndPrim()
+  {
+    printf("%d exprAndPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(AND))
+    {
+      if(exprEq())
+      {
+        if(exprAndPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprAnd()
+  {
+    printf("%d exprAnd %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprEq())
+    {
+      if(exprAndPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int exprOrPrim()
+  {
+    printf("%d exprOrPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+    if(consume(OR))
+    {
+      if(exprAnd())
+      {
+        if(exprOrPrim()) return 1;
+      }
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprOr()
+  {
+    printf("%d exprOr %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    if(exprAnd())
+    {
+      if(exprOrPrim()) return 1;
+    }
+
+    return 0;
+  }
+
+  int typeBase()
+  {
+    printf("%d typeBase %s\n", crtToken->line, getTokenName(crtToken->code));
+    if(consume(INT)) return 1;
+    if(consume(DOUBLE)) return 1;
+    if(consume(CHAR)) return 1;
+    if(consume(STRUCT))
+      if(consume(ID)) return 1;
+
+    return 0;
+  }
+
+  int exprPrimary()
+  {
+    printf("%d exprPrimary %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(consume(ID))
+    {
+      if(consume(LPAR))
+      {
+        if(expr())
+        {
+          while(consume(COMMA))
+          {
+            if(expr())
+            {
+
+            }
+            else tkerr(crtToken, "expression not found");
+          }
+        }
+
+        if(consume(RPAR)) return 1;
+        else tkerr(crtToken, "missing )");
+      }
+
+      //crtToken = startToken;
+      return 1;
+    }
+
+    if(consume(CT_INT)) return 1;
+    if(consume(CT_REAL)) return 1;
+    if(consume(CT_CHAR)) return 1;
+    if(consume(CT_STRING)) return 1;
+
+    if(consume(LPAR))
+    {
+      if(expr())
+      {
+        if(consume(RPAR)) return 1;
+        else tkerr(crtToken, "missing )");
+      }
+      else tkerr(crtToken, "no expression was found");
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int exprPostfixPrim()
+  {
+    printf("%d exprPostfixPrim %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(consume(LBRACKET))
+    {
+      if(expr())
+      {
+        if(consume(RBRACKET))
+        {
+          if(exprPostfixPrim()) return 1;
+        }
+        else tkerr(crtToken, "Missing ]");
+      }
+      else tkerr(crtToken, "exprPostfixPrim error");
+    }
+
+    if(consume(DOT))
+    {
+      if(consume(ID))
+      {
+        if(exprPostfixPrim()) return 1;
+      }
+      else tkerr(crtToken, "Missing variable name");
+    }
+
+    crtToken = startToken;
+    return 1;
+  }
+
+  int exprPostfix()
+  {
+    printf("%d exprPostfix %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(exprPrimary())
+    {
+      if(exprPostfixPrim()) return 1;
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int exprUnary()
+  {
+    printf("%d exprUnary %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(consume(SUB) || consume(NOT))
+    {
+      if(exprUnary()) return 1;
+      else tkerr(crtToken, "exprUnary error");
+    }
+
+    if(exprPostfix()) return 1;
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int exprAssign()
+  {
+    printf("%d exprAssign %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    //if(exprOr()) return 1;
+
+    if(exprUnary())
+    {
+      if(consume(ASSIGN))
+      {
+        if(exprAssign()) return 1;
+      }
+      //else tkerr(crtToken, "Missing =");
+      crtToken = startToken;
+    }
+
+    if(exprOr()) return 1;
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int expr()
+  {
+    if(exprAssign()) return 1;
+
+    return 0;
+  }
+
+  int arrayDecl()
+  {
+    printf("%d arrayDecl %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(consume(LBRACKET))
+    {
+      if(expr())
+      {
+      }
+
+      if(consume(RBRACKET)) return 1;
+      else tkerr(crtToken, "Wrong array declaration; missing ]");
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int declVar()
+  {
+    printf("%d declVar %s\n", crtToken->line, getTokenName(crtToken->code));
+    Token *startToken = crtToken;
+
+    if(typeBase())
+    {
+      if(consume(ID))
+        {
+          arrayDecl();
+
+          while(1)
+          {
+            if(consume(COMMA))
+            {
+              if(consume(ID))
+              {
+                arrayDecl();
+                continue;
+              }
+              else tkerr(crtToken, "Wrong variable name");
+            }
+            break;
+          }
+
+          if(consume(SEMICOLON)) return 1;
+          else tkerr(crtToken, "Missing ;");
+        }
+        else tkerr(crtToken, "Wrong variable name");
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  int declStruct()
+  {
+    printf("%d declStruct %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    Token *startToken = crtToken;
+
+    if(consume(STRUCT))
+    {
+      if(consume(ID))
+      {
+        if(consume(LACC))
+        {
+          while(declVar());
+
+          if(consume(RACC))
+          {
+            if(consume(SEMICOLON)) return 1;
+            else tkerr(crtToken, "Missing ;");
+          }
+          else tkerr(crtToken, "Missing }");
+        }
+        //else tkerr(crtToken, "Missing {");
+      }
+      else tkerr(crtToken, "Missing structure name");
+    }
+
+    crtToken = startToken;
+    return 0;
+  }
+
+  // int declFunc()
+  // {
+  //   printf("%d declFunc %s\n", crtToken->line, getTokenName(crtToken->code));
+  //
+  //   return 0;
+  // }
+
+  int unit()
+  {
+    printf("%d unit %s\n", crtToken->line, getTokenName(crtToken->code));
+
+    Token *startToken = crtToken;
+
+    while(1)
+    {
+      if(declStruct())
+      {
+      }
+      else if(declFunc())
+      {
+      }
+      else if(declVar())
+      {
+      }
+      else break;
+    }
+
+    //printf("%s\n", getTokenName(crtToken->code));
+
+    if(consume(END)) return 1;
+
+    crtToken = startToken;
+    return 0;
+  }
+
 int main(int argc, char **argv)
 {
   char buffer[30001];
@@ -544,6 +1284,11 @@ int main(int argc, char **argv)
 
   while(getNextToken() != END);
 
+  crtToken = tokens;
+
+  // if(unit()) printf("ok\n");
+  // else printf("nu ok\n");
+
   printf("\n\n");
   for(Token *index = tokens; index != NULL; index = index->next)
     if(index->code == CT_CHAR) printf("%d CT_CHAR: %c (%ld)\n", index->line, index->i, index->i);
@@ -551,7 +1296,12 @@ int main(int argc, char **argv)
     else if(index->code == ID) printf("%d ID: %s\n", index->line, index->text);
     else if(index->code == CT_REAL) printf("%d CT_REAL: %.4lf\n", index->line, index->r);
     else if(index->code == CT_INT) printf("%d CT_INT: %ld\n", index->line, index->i);
-    else printf("%d %s\n", index->line, enumNames[index->code]);
+    else printf("%d %s\n", index->line, getTokenName(index->code));
+
+  printf("\n\n-----------------------------------------------------------------------\n\n\n");
+
+  if(unit()) printf("Sintaxa OK!\n");
+  else tkerr(crtToken, "invalid syntax 12345");
 
   return 0;
 }

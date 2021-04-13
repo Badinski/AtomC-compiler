@@ -1,14 +1,26 @@
-/*
-testare analizor lexical
-*/
-void main()
+struct  abcd{
+	int xy;
+	};
+
+struct 	pt	points[20/4+5];
+
+
+
+int		*count()
 {
-	if(0xc==014)put_s("\"egal\"\t\t(h,o)");
-		else put_s("\"inegal\"\t\t(h,o)");
-	if(20E-1==2.0&&0.2e+1==0x2)put_c('=');  // 2 scris in diverse feluri
-		else put_c('\\');
+	int		x,x;
+	for (i=n=0; i<10; i=i+1){
+		if (points[i].x>=3&&points[i].y>=0)n=n+1;
+		}
+	return n;
+
+	while(1);
 }
 
-int abcd = 21.43
+char ch;
 
-dadadwqfqoibfqwbdqowbqwodowqbdqw
+void main()
+{
+	put_i(count());
+
+}
