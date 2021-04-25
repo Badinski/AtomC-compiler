@@ -739,6 +739,7 @@ char *createString(char *begin_ch, char *end_ch)
             {
               return 1;
             }
+            else tkerr(crtToken, "Invalid function body");
           }
           else tkerr(crtToken, "missing )");
         }
@@ -859,6 +860,7 @@ char *createString(char *begin_ch, char *end_ch)
       {
         if(exprAddPrim()) return 1;
       }
+      else tkerr(crtToken, "Missing right argument after +/-");
     }
 
     crtToken = startToken;
@@ -1180,7 +1182,7 @@ char *createString(char *begin_ch, char *end_ch)
                 arrayDecl();
                 continue;
               }
-              else tkerr(crtToken, "Wrong variable name");
+              else tkerr(crtToken, "Missing variable name after ,");
             }
             break;
           }
@@ -1256,7 +1258,7 @@ char *createString(char *begin_ch, char *end_ch)
 
     if(consume(END)) return 1;
 
-    crtToken = startToken;
+    //crtToken = startToken;
     return 0;
   }
 
@@ -1301,7 +1303,7 @@ int main(int argc, char **argv)
   printf("\n\n-----------------------------------------------------------------------\n\n\n");
 
   if(unit()) printf("Sintaxa OK!\n");
-  else tkerr(crtToken, "invalid syntax 12345");
+  else tkerr(crtToken, "invalid syntax");
 
   return 0;
 }
