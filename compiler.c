@@ -48,6 +48,97 @@ typedef struct _Token
   struct _Token *next; // inlantuire la urmatorul AL
 }Token;
 
+  /*  */
+
+struct _Symbol;
+typedef struct _Symbol Symbol;
+
+enum{ TB_INT, TB_DOUBLE, TB_CHAR, TB_STRUCT, TB_VOID};
+
+typedef struct{
+  int typeBase; // TB_*
+  Symbol *s; // struct definition for TB_STRUCT
+  int nElements; // >0 array of given size, 0=array without size, <0 non array
+}Type;
+
+enum{ CLS_VAR, CLS_FUNC, CLS_EXTFUNC, CLS_STRUCT };
+enum{ MEM_GLOBAL, MEM_ARG, MEM_LOCAL };
+
+typedef struct
+{
+  Symbol **begin; // the beginning of the symbols, or NULL
+  Symbol **end; // the position after the last symbol
+  Symbol **after; // the position after the allocated space
+}Symbols;
+
+typedef struct _Symbol
+{
+  const char *name; // a reference to the name stored in a token
+  int cls; // CLS_*
+  int mem; // MEM_*
+  Type type;
+  int depth; // 0-global, 1-in function, 2... - nested blocks in function
+  union
+  {
+    Symbols args; // used only of functions
+    Symbols members; // used only for structs
+  };
+}Symbol;
+
+Symbols symbols;
+int crtDepth;
+Symbol *crtStrcut, *crtFunc;
+
+void initSymbols(Symbols *symbols)
+{
+symbols->begin=NULL;
+symbols->end=NULL;
+symbols->after=NULL;
+}
+
+Symbol *addSymbol(Symbols *symbols,const char *name,int cls)
+{
+  Symbol *s;
+
+  if(symbols->end==symbols->after)
+  { 
+    // create more room
+    int count=symbols->after-symbols->begin;
+    int n=count*2; // double the room
+    if(n==0)n=1; // needed for the initial case
+    symbols->begin=(Symbol**)realloc(symbols->begin, n*sizeof(Symbol*));
+    if(symbols->begin==NULL)perror("not enough memory");
+    symbols->end=symbols->begin+count;
+    symbols->after=symbols->begin+n;
+  }
+  SAFEALLOC(s,Symbol)
+  *symbols->end++=s;
+  s->name=name;
+  s->cls=cls;
+  s->depth=crtDepth;
+
+  return s;
+}
+
+Symbol *findSymbol(Symbols *symbols,const char *name)
+{
+  Symbol **p, *s;
+  int foundSymbol = 0;
+
+  for(p = symbols->begin; p != symbols->end; p++)if((*p)->cls==CLS_FUNC)
+  {
+    if(strcmp((*p)->name, name) == 0 && (*p)->depth == crtDepth )
+    {
+      foundSymbol = 1;
+      s = *p;
+    }
+  }
+
+  if(foundSymbol == 1) return s;
+
+  return NULL;
+}
+
 Token *tokens = NULL, *lastToken = NULL;
 Token *crtToken;
 
@@ -1238,7 +1329,7 @@ char *createString(char *begin_ch, char *end_ch)
   {
     printf("%d unit %s\n", crtToken->line, getTokenName(crtToken->code));
 
-    Token *startToken = crtToken;
+    // Token *startToken = crtToken;
 
     while(1)
     {
