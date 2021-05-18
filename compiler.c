@@ -86,8 +86,8 @@ typedef struct _Symbol
 }Symbol;
 
 Symbols symbols;
-int crtDepth;
-Symbol *crtStrcut, *crtFunc;
+int crtDepth = 0;
+Symbol *crtStruct, *crtFunc;
 
 void initSymbols(Symbols *symbols)
 {
@@ -111,7 +111,7 @@ Symbol *addSymbol(Symbols *symbols,const char *name,int cls)
     symbols->end=symbols->begin+count;
     symbols->after=symbols->begin+n;
   }
-  SAFEALLOC(s,Symbol)
+  SAFEALLOC(s,Symbol);
   *symbols->end++=s;
   s->name=name;
   s->cls=cls;
@@ -125,7 +125,7 @@ Symbol *findSymbol(Symbols *symbols,const char *name)
   Symbol **p, *s;
   int foundSymbol = 0;
 
-  for(p = symbols->begin; p != symbols->end; p++)if((*p)->cls==CLS_FUNC)
+  for(p = symbols->begin; p != symbols->end; p++)
   {
     if(strcmp((*p)->name, name) == 0 && (*p)->depth == crtDepth )
     {
@@ -135,12 +135,33 @@ Symbol *findSymbol(Symbols *symbols,const char *name)
   }
 
   if(foundSymbol == 1) return s;
-
+  
   return NULL;
 }
 
+void deleteSymbolsAfter(Symbols *symbols, Symbol *crtSymbol)
+{
+  Symbol **p, **aux;
+
+  for(p = symbols->begin; p != symbols->end; p++)
+  {
+    if(strcmp((*p)->name, crtSymbol->name) == 0 && (*p)->depth == crtSymbol->depth) break;
+  }
+
+  while(p != symbols->end)
+  {
+    aux = p;
+    p++;
+
+    free(aux);
+  }
+}
+
 Token *tokens = NULL, *lastToken = NULL;
-Token *crtToken;
+Token *crtToken, *consumedToken;
+
+Token *symbolToken;
+Type *symbolType;
 
 Token *addTk(int code)
 {
@@ -632,6 +653,35 @@ char *createString(char *begin_ch, char *end_ch)
    exit(-1);
  }
 
+  void addVar(Token *tkName,Type *t)
+  {
+    Symbol *s;
+    if(crtStruct)
+    {
+      if(findSymbol(&crtStruct->members,tkName->text))
+        tkerr(crtToken,"symbol redefinition: %s",tkName->text);
+      
+      s=addSymbol(&crtStruct->members,tkName->text,CLS_VAR);
+    }
+    else if(crtFunc)
+    {
+      s=findSymbol(&symbols,tkName->text);
+      if(s&&s->depth==crtDepth)
+         tkerr(crtToken,"symbol redefinition: %s",tkName->text);
+      s=addSymbol(&symbols,tkName->text,CLS_VAR);
+      s->mem=MEM_LOCAL;
+    }
+    else
+    {
+      if(findSymbol(&symbols,tkName->text))
+         tkerr(crtToken,"symbol redefinition: %s",tkName->text);
+      s=addSymbol(&symbols,tkName->text,CLS_VAR);   
+      s->mem=MEM_GLOBAL;
+    }
+
+    s->type=*t;
+  }
+
   char *getTokenName(int code)
   {
     return enumNames[code];
@@ -641,7 +691,9 @@ char *createString(char *begin_ch, char *end_ch)
   {
     if(crtToken->code == code)
     {
-      //consumedTk=crtTk;
+      if(crtToken->code == ID) symbolToken = crtToken;
+
+      consumedToken = crtToken;
       printf("%d. consume: %s\n", crtToken->line, getTokenName(crtToken->code));
 
       crtToken = crtToken->next;
@@ -767,12 +819,18 @@ char *createString(char *begin_ch, char *end_ch)
   {
     printf("%d stmCompound %s\n", crtToken->line, getTokenName(crtToken->code));
 
+    Symbol *start=symbols.end[-1];
+
     if(consume(LACC))
     {
+      crtDepth++;
       while(declVar() || stm());
 
       if(consume(RACC))
       {
+        crtDepth--;
+        deleteSymbolsAfter(&symbols,start);
+
         return 1;
       }
       else tkerr(crtToken, "missing }");
@@ -792,6 +850,14 @@ char *createString(char *begin_ch, char *end_ch)
         if(arrayDecl())
         {
         }
+        else symbolType->nElements = -1;
+
+        Symbol  *s=addSymbol(&symbols, symbolToken->text,CLS_VAR);
+        s->mem = MEM_ARG;
+        s->type = *symbolType;
+        s = addSymbol(&crtFunc->args, symbolToken->text,CLS_VAR);
+        s->mem = MEM_ARG;
+        s->type = *symbolType;
 
         return 1;
       }
@@ -810,12 +876,22 @@ char *createString(char *begin_ch, char *end_ch)
     {
       if(consume(MUL))
       {
+        symbolType->nElements = 0;
       }
+      else symbolType->nElements = -1;
 
       if(consume(ID))
       {
         if(consume(LPAR))
         {
+          if(findSymbol(&symbols,symbolToken->text))
+            tkerr(crtToken,"symbol redefinition: %s",symbolToken->text);
+
+          crtFunc=addSymbol(&symbols,symbolToken->text,CLS_FUNC);
+          initSymbols(&crtFunc->args);
+          crtFunc->type = *symbolType;
+          crtDepth++;
+
           if(funcArg())
           {
             while(consume(COMMA))
@@ -826,8 +902,13 @@ char *createString(char *begin_ch, char *end_ch)
 
           if(consume(RPAR))
           {
+            crtDepth--;
+
             if(stmCompound())
             {
+              deleteSymbolsAfter(&symbols,crtFunc);
+              crtFunc=NULL;
+
               return 1;
             }
             else tkerr(crtToken, "Invalid function body");
@@ -846,10 +927,20 @@ char *createString(char *begin_ch, char *end_ch)
 
     if(consume(VOID))
     {
+      symbolType->typeBase = TB_VOID;
+
       if(consume(ID))
       {
         if(consume(LPAR))
         {
+          if(findSymbol(&symbols,symbolToken->text))
+            tkerr(crtToken,"symbol redefinition: %s",symbolToken->text);
+            
+          crtFunc=addSymbol(&symbols,symbolToken->text,CLS_FUNC);
+          initSymbols(&crtFunc->args);
+          crtFunc->type = *symbolType;
+          crtDepth++;
+
           if(funcArg())
           {
             while(consume(COMMA))
@@ -860,8 +951,13 @@ char *createString(char *begin_ch, char *end_ch)
 
           if(consume(RPAR))
           {
+            crtDepth--;
+
             if(stmCompound())
             {
+              deleteSymbolsAfter(&symbols,crtFunc);
+              crtFunc=NULL;
+
               return 1;
             }
           }
@@ -880,7 +976,7 @@ char *createString(char *begin_ch, char *end_ch)
   {
     if(typeBase())
     {
-      arrayDecl();
+      if(!arrayDecl()) symbolType->nElements = -1;
 
       return 1;
     }
@@ -1085,11 +1181,35 @@ char *createString(char *begin_ch, char *end_ch)
   int typeBase()
   {
     printf("%d typeBase %s\n", crtToken->line, getTokenName(crtToken->code));
-    if(consume(INT)) return 1;
-    if(consume(DOUBLE)) return 1;
-    if(consume(CHAR)) return 1;
+    if(consume(INT)) 
+    {
+      symbolType->typeBase = TB_INT;
+      return 1;
+    }
+
+    if(consume(DOUBLE))
+    {
+      symbolType->typeBase = TB_DOUBLE;
+      return 1;
+    } 
+
+    if(consume(CHAR))
+    {
+      symbolType->typeBase = TB_CHAR;
+      return 1;
+    } 
+
     if(consume(STRUCT))
-      if(consume(ID)) return 1;
+      if(consume(ID))
+      {
+        Symbol *s = findSymbol(&symbols, symbolToken->text);
+        if(s==NULL)tkerr(crtToken,"undefined symbol: %s", symbolToken->text);
+        if(s->cls!=CLS_STRUCT)tkerr(crtToken,"%s is not a struct", symbolToken->text);
+        symbolType->typeBase=TB_STRUCT;
+        symbolType->s=s;
+
+        return 1;
+      } 
 
     return 0;
   }
@@ -1245,6 +1365,8 @@ char *createString(char *begin_ch, char *end_ch)
       {
       }
 
+      symbolType->nElements = 0;
+
       if(consume(RBRACKET)) return 1;
       else tkerr(crtToken, "Wrong array declaration; missing ]");
     }
@@ -1262,7 +1384,8 @@ char *createString(char *begin_ch, char *end_ch)
     {
       if(consume(ID))
         {
-          arrayDecl();
+          if(!arrayDecl()) symbolType->nElements = -1;
+          addVar(symbolToken, symbolType);
 
           while(1)
           {
@@ -1270,7 +1393,9 @@ char *createString(char *begin_ch, char *end_ch)
             {
               if(consume(ID))
               {
-                arrayDecl();
+                if(!arrayDecl()) symbolType->nElements = -1;
+                addVar(symbolToken, symbolType);
+
                 continue;
               }
               else tkerr(crtToken, "Missing variable name after ,");
@@ -1300,11 +1425,21 @@ char *createString(char *begin_ch, char *end_ch)
       {
         if(consume(LACC))
         {
+          if(findSymbol(&symbols, symbolToken->text)) 
+            tkerr(crtToken,"symbol redefinition: %s", symbolToken->text);
+
+          crtStruct=addSymbol(&symbols, symbolToken->text,CLS_STRUCT);
+          initSymbols(&crtStruct->members);
+
           while(declVar());
 
           if(consume(RACC))
           {
-            if(consume(SEMICOLON)) return 1;
+            if(consume(SEMICOLON)) 
+            {
+              crtStruct = NULL;
+              return 1;
+            }
             else tkerr(crtToken, "Missing ;");
           }
           else tkerr(crtToken, "Missing }");
@@ -1355,6 +1490,9 @@ char *createString(char *begin_ch, char *end_ch)
 
 int main(int argc, char **argv)
 {
+  SAFEALLOC(symbolType, Type);
+  SAFEALLOC(symbolToken, Token);
+
   char buffer[30001];
 
   if(argc != 2)
